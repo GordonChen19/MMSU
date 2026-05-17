@@ -2308,6 +2308,12 @@
         color: #ffe8b4;
       }
 
+      .shared-entry-actions button.verified-action {
+        border-color: rgba(111, 218, 143, 0.68);
+        background: rgba(38, 140, 82, 0.42);
+        color: #e9fff0;
+      }
+
       .shared-entry-actions button:hover:not(:disabled) {
         filter: brightness(1.08);
       }
@@ -2539,7 +2545,7 @@
             <button type="button" id="shared-refresh" class="icon-only refresh-button" aria-label="Refresh shared library" title="Refresh shared library">↻</button>
             <button type="button" id="shared-review-request-filter" title="Show videos manually requested for human review">Requesting Review</button>
             <button type="button" id="shared-gemini-filter" title="Show videos with Gemini responses that still need human verification">Pending</button>
-            <button type="button" id="shared-verified-filter" title="Show videos with both Gemini responses and saved human review scores">Verified</button>
+            <button type="button" id="shared-verified-filter" title="Show videos manually moved to Verified">Verified</button>
             <button type="button" id="shared-close" class="danger">X</button>
           </div>
         </div>
@@ -3106,6 +3112,7 @@
       const SHARED_LIBRARY_VIDEO_UPLOAD_PATH = "/api/shared-library/video-assets";
       const SHARED_LIBRARY_LOCAL_VIDEO_REGISTER_PATH = "/api/shared-library/register-local-video";
       const SHARED_LIBRARY_MANUAL_REVIEW_REQUEST_SUFFIX = "/manual-review-request";
+      const SHARED_LIBRARY_VERIFIED_SUFFIX = "/verified";
       const DISTRACTOR_COUNT_PER_TASK = 7;
       const PERCEPTION_CHOICE_COUNT = 8;
       const TAKE_QUIZ_OPTION_LABELS = ["A", "B", "C", "D", "E", "F", "G", "H"];
@@ -10498,11 +10505,11 @@
       }
 
       function sharedVideoIsVerified(videoItem) {
-        return sharedVideoHasGeminiResponses(videoItem) && sharedVideoHasHumanReview(videoItem);
+        return Boolean(videoItem && videoItem.verified);
       }
 
       function sharedVideoIsPending(videoItem) {
-        return sharedVideoHasGeminiResponses(videoItem) && !sharedVideoHasHumanReview(videoItem);
+        return sharedVideoHasGeminiResponses(videoItem) && !sharedVideoIsVerified(videoItem);
       }
 
       function sharedVideoIsRequestingReview(videoItem) {
@@ -10575,9 +10582,9 @@
           const empty = document.createElement("div");
           empty.className = "shared-empty";
           empty.textContent = sharedVideoFilterMode === "verified"
-            ? "No verified videos yet. A verified video needs Gemini responses and a saved human review score."
+            ? "No verified videos yet. Use the Verified button on a video to move it here."
             : sharedVideoFilterMode === "pending"
-              ? "No pending videos. Pending videos have Gemini responses but no saved human review score yet."
+              ? "No pending videos. Pending videos have Gemini responses and have not been moved to Verified."
               : sharedVideoFilterMode === "review-requested"
                 ? "No videos have been manually requested for review yet."
                 : "No shared videos match this filter.";
@@ -10657,6 +10664,17 @@
               "gemini-present"
             );
           }
+          if (sharedVideoIsVerified(videoItem)) {
+            const verifiedBy = String(videoItem.verifiedBy || "").trim();
+            const verifiedAt = String(videoItem.verifiedAt || "").trim();
+            appendSharedMetaPart(
+              meta,
+              "Verified"
+                + (verifiedBy ? " by " + verifiedBy : "")
+                + (verifiedAt ? " at " + formatSharedTimestamp(verifiedAt) : ""),
+              "gemini-present"
+            );
+          }
 
           const reviewers = document.createElement("div");
           reviewers.className = "shared-entry-reviewers";
@@ -10721,20 +10739,35 @@
           const requestReviewButton = document.createElement("button");
           requestReviewButton.type = "button";
           const reviewAlreadyRequested = sharedVideoIsRequestingReview(videoItem);
-          requestReviewButton.textContent = reviewAlreadyRequested ? "Review Requested" : "Request Manual Review";
+          requestReviewButton.textContent = reviewAlreadyRequested ? "Move Back" : "Request Review";
           requestReviewButton.title = reviewAlreadyRequested
-            ? "This video is already in Requesting Review."
+            ? "Remove this video from Requesting Review."
             : "Move this video to Requesting Review.";
           requestReviewButton.classList.toggle("review-requested", reviewAlreadyRequested);
-          requestReviewButton.disabled = reviewAlreadyRequested || !Number.isInteger(videoItem.videoRef);
+          requestReviewButton.disabled = !Number.isInteger(videoItem.videoRef);
           requestReviewButton.addEventListener("click", () => {
             requestManualReview(videoItem, requestReviewButton);
           });
           actions.appendChild(requestReviewButton);
+
+          const verifiedButton = document.createElement("button");
+          verifiedButton.type = "button";
+          verifiedButton.className = "verified-action";
+          const alreadyVerified = sharedVideoIsVerified(videoItem);
+          verifiedButton.textContent = alreadyVerified ? "Verified" : "Verified";
+          verifiedButton.title = alreadyVerified
+            ? "This video is already in Verified."
+            : "Move this video to Verified.";
+          verifiedButton.disabled = alreadyVerified || !Number.isInteger(videoItem.videoRef);
+          verifiedButton.addEventListener("click", () => {
+            markSharedVideoVerified(videoItem, verifiedButton);
+          });
+          actions.appendChild(verifiedButton);
+
           if (annotations.length) {
             const loadLatestButton = document.createElement("button");
             loadLatestButton.type = "button";
-            loadLatestButton.textContent = "Load Review";
+            loadLatestButton.textContent = "Load";
             loadLatestButton.addEventListener("click", () => {
               loadSharedEntry(annotations[0].id);
             });
@@ -10744,7 +10777,7 @@
             const deleteVideoButton = document.createElement("button");
             deleteVideoButton.type = "button";
             deleteVideoButton.className = "danger";
-            deleteVideoButton.textContent = "Delete Video";
+            deleteVideoButton.textContent = "Delete";
             deleteVideoButton.title = "Remove this video and all shared annotations";
             deleteVideoButton.addEventListener("click", () => {
               deleteSharedVideo(videoItem);
@@ -11150,12 +11183,17 @@
         }
 
         const title = String(videoItem.videoTitle || videoItem.videoOriginalFilename || "this video");
+        const requested = !sharedVideoIsRequestingReview(videoItem);
         const previousLabel = triggerButton ? triggerButton.textContent : "";
         if (triggerButton) {
           triggerButton.disabled = true;
-          triggerButton.textContent = "Requesting...";
+          triggerButton.textContent = requested ? "Requesting..." : "Moving...";
         }
-        updateSharedStatus("Requesting manual review for " + title + "...");
+        updateSharedStatus(
+          requested
+            ? ("Requesting manual review for " + title + "...")
+            : ("Moving " + title + " out of Requesting Review...")
+        );
         try {
           const response = await fetch(
             resolveSharedApiUrl(
@@ -11169,7 +11207,9 @@
               headers: buildSharedAuthHeaders({
                 "Content-Type": "application/json",
               }),
-              body: JSON.stringify({}),
+              body: JSON.stringify({
+                requested: requested,
+              }),
             }
           );
           let payload = null;
@@ -11180,19 +11220,85 @@
           }
 
           if (!response.ok || !payload || !payload.video) {
-            throw new Error(payload && payload.error ? payload.error : "Manual review request failed.");
+            throw new Error(payload && payload.error ? payload.error : "Manual review request update failed.");
           }
 
-          sharedVideoFilterMode = "review-requested";
-          updateSharedStatus("Requested manual review for " + title + ".");
+          if (requested) {
+            sharedVideoFilterMode = "review-requested";
+          }
+          updateSharedStatus(
+            requested
+              ? ("Requested manual review for " + title + ".")
+              : ("Moved " + title + " out of Requesting Review.")
+          );
           await loadSharedEntries();
         } catch (error) {
           const message = error && error.message ? String(error.message) : "Unknown error";
-          updateSharedStatus("Manual review request failed (" + message + ").");
-          showErrorPopup("Manual review request failed: " + message);
+          updateSharedStatus("Manual review request update failed (" + message + ").");
+          showErrorPopup("Manual review request update failed: " + message);
           if (triggerButton) {
             triggerButton.disabled = false;
-            triggerButton.textContent = previousLabel || "Request Manual Review";
+            triggerButton.textContent = previousLabel || "Request Review";
+          }
+        }
+      }
+
+      async function markSharedVideoVerified(videoItem, triggerButton) {
+        if (!requireSharedLogin("marking a video verified")) {
+          return;
+        }
+        if (!videoItem || !Number.isInteger(videoItem.videoRef)) {
+          showErrorPopup("Could not mark verified because the video ref is missing.");
+          return;
+        }
+
+        const title = String(videoItem.videoTitle || videoItem.videoOriginalFilename || "this video");
+        const previousLabel = triggerButton ? triggerButton.textContent : "";
+        if (triggerButton) {
+          triggerButton.disabled = true;
+          triggerButton.textContent = "Verifying...";
+        }
+        updateSharedStatus("Moving " + title + " to Verified...");
+        try {
+          const response = await fetch(
+            resolveSharedApiUrl(
+              SHARED_LIBRARY_VIDEOS_PATH
+                + "/"
+                + String(videoItem.videoRef)
+                + SHARED_LIBRARY_VERIFIED_SUFFIX
+            ),
+            {
+              method: "POST",
+              headers: buildSharedAuthHeaders({
+                "Content-Type": "application/json",
+              }),
+              body: JSON.stringify({
+                verified: true,
+              }),
+            }
+          );
+
+          let payload = null;
+          try {
+            payload = await response.json();
+          } catch (error) {
+            payload = null;
+          }
+
+          if (!response.ok || !payload || !payload.video) {
+            throw new Error(payload && payload.error ? payload.error : "Verification failed.");
+          }
+
+          sharedVideoFilterMode = "verified";
+          updateSharedStatus("Moved " + title + " to Verified.");
+          await loadSharedEntries();
+        } catch (error) {
+          const message = error && error.message ? String(error.message) : "Unknown error";
+          updateSharedStatus("Verification failed (" + message + ").");
+          showErrorPopup("Verification failed: " + message);
+          if (triggerButton) {
+            triggerButton.disabled = false;
+            triggerButton.textContent = previousLabel || "Verified";
           }
         }
       }
@@ -11959,7 +12065,7 @@
         renderSharedEntries(latestSharedVideos);
         updateSharedStatus(
           sharedVideoFilterMode === "pending"
-            ? "Showing pending videos with Gemini responses and no saved human review."
+            ? "Showing pending videos with Gemini responses that have not been moved to Verified."
             : "Showing all shared videos."
         );
       });
@@ -11969,7 +12075,7 @@
         renderSharedEntries(latestSharedVideos);
         updateSharedStatus(
           sharedVideoFilterMode === "verified"
-            ? "Showing verified videos with Gemini responses and a saved human review."
+            ? "Showing videos manually moved to Verified."
             : "Showing all shared videos."
         );
       });
