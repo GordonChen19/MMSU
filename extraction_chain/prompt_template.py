@@ -77,29 +77,29 @@ Example Answer Choices:
 
 QUESTION_MAPPINGS = {
     "Emotion": {
-        "Reasoning": "Which of the following best describes what causes {character} to feel the following emotion: {truth}?",
+        "Reasoning": "Which of the following best explains what causes {character} to feel the following emotion: {truth}, or how you know {character} is feeling that way?",
         "Comprehension": "Which of the following correctly describes what {character} is feeling at this point in the video? If there are multiple emotions, identify the most significant one.",
-        "Prediction": "Given how {character} is feeling at this point in the video, which of the following actions is {character} most likely to take next?"
+        "Prediction": "Which of the following is most likely to occur next?"
     },
     "Persona": {
         "Reasoning": "Which of the following best explains why {character}'s persona in this scene is {truth}?",
         "Comprehension": "Which of the following correctly describes {character}'s persona at this point in the video?",
-        "Prediction": "Given {character}'s persona in this scene, which of the following actions is {character} most likely to take next?"
+        "Prediction": "Which of the following is most likely to occur next?"
     },
     "Intent": {
-        "Reasoning": "Which of the following best explains why {character}'s intent in this scene is the following or how they achieve it: {truth}?",
+        "Reasoning": "Which of the following best explains why {character}’s intent in this scene is the following: {truth}, or how {character} achieves it?",
         "Comprehension": "Which of the following correctly describes what {character}'s intent is at this point in the video?",
-        "Prediction": "Given {character}'s intent, which of the following outcomes is {character} most likely to pursue next?"
+        "Prediction": "Which of the following is most likely to occur next?"
     }, 
     "Perspective/Belief":{
-        "Reasoning": "Which of the following best describes why {character} has the following perspective/belief: {truth}?",
+        "Reasoning": "Which of the following best explains why {character} has the following perspective/belief: {truth}, or what indicates that {character} holds this perspective/belief?",
         "Comprehension": "Which of the following correctly describes {character}'s perspective/belief at this point in the video?",
-        "Prediction": "Given {character}'s perspective/belief, which of the following beliefs or actions is {character} most likely to have or take next?"
+        "Prediction": "Which of the following is most likely to occur next?"
     },
     "Knowledge_State":{
         "Reasoning": "Which of the following best explains why {character} has the following knowledge state: {truth}?",
         "Comprehension": "Which of the following correctly describes what {character} knows or does not know at this point in the video?",
-        "Prediction": "Given what {character} knows or does not know, which of the following beliefs or actions is {character} most likely to have or take next?"
+        "Prediction": "Which of the following is most likely to occur next?" 
     },
     "Communicative_Intent": {
         "Reasoning": "Which of the following correctly describes why {character} he communicates in the following way: {truth}?",
@@ -107,14 +107,14 @@ QUESTION_MAPPINGS = {
         "Prediction": "Given {character}'s communicative intent, what type of reaction is {character} most likely to elicit from others?"
     },
     "Relationship":{
-        "Reasoning": "Which of the following best explains why {character1} has the following relationship with {character2} or what gives it away: {truth}?",
+        "Reasoning": "Which of the following best explains why {character1} has the following relationship with {character2}: {truth}, or what indicates that this relationship exists?",
         "Comprehension": "Which of the following correctly describes the relationship between {character1} and {character2} at this point in the video?",
-        "Prediction": "Given the relationship between {character1} and {character2}, which of the following interactions is most likely to occur next between them?"
+        "Prediction": "Which of the following is most likely to occur next?"
     },
     "Social_Norms":{
         "Reasoning": "Explain how {character} is adhering to or violating an unspoken rule in this scene.",
         "Comprehension": "Is {character} adhering or violating an unspoken rule?",
-        "Prediction": "Given the norm violation or conformity observed from {character}, which of the following consequences is most likely to follow?"
+        "Prediction": "Which of the following is most likely to occur next?"
     },
     "Cultural_Conventions":{
         "Reasoning": "Explain how {character} is adhering to or violating an unspoken rule in this scene.",

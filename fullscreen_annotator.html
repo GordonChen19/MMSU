@@ -2605,7 +2605,7 @@
         </div>
         <div class="analytics-body">
           <div class="analytics-intro">
-            Shared-library analytics across all videos, not just the one currently open in the player.
+            Shared-library analytics across videos in the Verified section.
           </div>
           <div class="analytics-status" id="analytics-status">Load the shared library to compute dataset-wide analytics.</div>
           <div class="analytics-summary-grid">
@@ -4090,6 +4090,37 @@
         return takeQuizSession.entries[takeQuizSession.index];
       }
 
+      function getTakeQuizPlaybackLimitSec() {
+        const entry = getCurrentTakeQuizEntry();
+        if (!entry) {
+          return null;
+        }
+        const limit = Number(entry.timeSec);
+        return Number.isFinite(limit) ? Math.max(0, limit) : null;
+      }
+
+      function enforceTakeQuizPlaybackLimit(currentTime = Number(video.currentTime || 0)) {
+        if (!takeQuizSession || !takeQuizSession.active) {
+          return false;
+        }
+        const limit = getTakeQuizPlaybackLimitSec();
+        if (!Number.isFinite(limit)) {
+          return false;
+        }
+        const current = Number(currentTime || 0);
+        if (current <= limit + TAKE_QUIZ_TRIGGER_TOLERANCE_SEC) {
+          return false;
+        }
+        video.pause();
+        video.currentTime = limit;
+        if (!takeQuizSession.waitingForAnswer) {
+          takeQuizSession.waitingForAnswer = true;
+          renderTakeQuizEntry(getCurrentTakeQuizEntry());
+        }
+        updateStatus("Quiz review is limited to the earliest unanswered question at " + formatTimecode(limit) + ".");
+        return true;
+      }
+
       function buildTakeQuizEntries() {
         const duration = getVideoDurationSec();
         const sortedNotes = state.notes
@@ -4299,7 +4330,7 @@
         );
         takeQuizQuestionText.textContent = String(entry.question || "");
         takeQuizOptions.innerHTML = "";
-        setTakeQuizFeedback("Choose one option, then close this popup to continue playback.", "pending");
+        setTakeQuizFeedback("Choose one option. Close this popup to rewatch the video up to this timestamp.", "pending");
 
         const optionButtons = [];
         entry.options.forEach((option) => {
@@ -4503,7 +4534,15 @@
         }
         const currentEntry = getCurrentTakeQuizEntry();
         if (currentEntry && !currentEntry.answered) {
-          currentEntry.skipped = true;
+          takeQuizSession.waitingForAnswer = false;
+          closeTakeQuizPopup();
+          video.pause();
+          updateStatus(
+            "Review the video up to "
+            + formatTimecode(Number(currentEntry.timeSec) || 0)
+            + ". The question will reappear at that timestamp."
+          );
+          return;
         }
         takeQuizSession.waitingForAnswer = false;
         closeTakeQuizPopup();
@@ -4530,12 +4569,18 @@
       }
 
       function triggerTakeQuizQuestionIfNeeded(currentTime) {
-        if (!takeQuizSession || !takeQuizSession.active || takeQuizSession.waitingForAnswer) {
+        if (!takeQuizSession || !takeQuizSession.active) {
           return;
         }
         const entry = getCurrentTakeQuizEntry();
         if (!entry) {
           finishTakeQuizSession();
+          return;
+        }
+        if (enforceTakeQuizPlaybackLimit(currentTime)) {
+          return;
+        }
+        if (takeQuizSession.waitingForAnswer) {
           return;
         }
         if (Number(currentTime || 0) + TAKE_QUIZ_TRIGGER_TOLERANCE_SEC < Number(entry.timeSec || 0)) {
@@ -4998,8 +5043,12 @@
         renderAnalyticsLegend(legendElement, items, totalCount);
       }
 
+      function getVerifiedSharedVideosForAnalytics() {
+        return Array.from(sharedVideoIndex.values()).filter((videoItem) => sharedVideoIsVerified(videoItem));
+      }
+
       function collectSharedLibraryMetadata() {
-        const videos = Array.from(sharedVideoIndex.values());
+        const videos = getVerifiedSharedVideosForAnalytics();
         const uniqueAnnotators = new Set();
         let totalLayers = 0;
 
@@ -5055,7 +5104,11 @@
           return;
         }
 
-        const entryIds = Array.from(sharedEntryMetaIndex.keys());
+        const entryIds = getVerifiedSharedVideosForAnalytics().flatMap((videoItem) => {
+          return (Array.isArray(videoItem && videoItem.annotations) ? videoItem.annotations : [])
+            .map((entry) => Number(entry && entry.id))
+            .filter((entryId) => Number.isInteger(entryId));
+        });
         const settledEntries = await Promise.allSettled(entryIds.map((entryId) => {
           return fetchSharedEntryPayloadCached(entryId);
         }));
@@ -5124,14 +5177,14 @@
         } else if (libraryAnalyticsState.error) {
           updateAnalyticsStatus("Shared-library analytics failed (" + libraryAnalyticsState.error + ").");
         } else if (!libraryAnalyticsState.loaded) {
-          updateAnalyticsStatus("Load the shared library to compute dataset-wide analytics.");
+          updateAnalyticsStatus("Load the shared library to compute analytics for verified videos.");
         } else if (!libraryAnalyticsState.totalLayers) {
-          updateAnalyticsStatus("No shared annotation layers are available yet.");
+          updateAnalyticsStatus("No verified videos with annotation layers are available yet.");
         } else if (libraryAnalyticsState.partialFailures > 0) {
           updateAnalyticsStatus(
             "Loaded analytics for "
             + String(libraryAnalyticsState.totalVideos)
-            + " videos and "
+            + " verified videos and "
             + String(libraryAnalyticsState.totalLayers)
             + " review layer(s). "
             + String(libraryAnalyticsState.partialFailures)
@@ -5141,7 +5194,7 @@
           updateAnalyticsStatus(
             "Across "
             + String(libraryAnalyticsState.totalVideos)
-            + " videos, "
+            + " verified videos, "
             + String(libraryAnalyticsState.totalLayers)
             + " review layer(s), and "
             + String(libraryAnalyticsState.totalNotes)
@@ -6965,11 +7018,13 @@
       function updatePlaybackUi() {
         const current = video.currentTime || 0;
         const duration = Number.isFinite(video.duration) ? video.duration : 0;
+        const quizLimit = getTakeQuizPlaybackLimitSec();
         currentTimeLabel.textContent = formatTimecode(current);
         durationTimeLabel.textContent = formatTimecode(duration);
         if (duration > 0) {
-          scrubber.max = String(duration);
-          scrubber.value = String(current);
+          const scrubberMax = Number.isFinite(quizLimit) ? Math.min(duration, quizLimit) : duration;
+          scrubber.max = String(scrubberMax);
+          scrubber.value = String(Math.min(current, scrubberMax));
         } else {
           scrubber.max = "0";
           scrubber.value = "0";
@@ -11926,8 +11981,13 @@
       });
 
       scrubber.addEventListener("input", () => {
-        const target = Number(scrubber.value);
+        let target = Number(scrubber.value);
         if (Number.isFinite(target)) {
+          const quizLimit = getTakeQuizPlaybackLimitSec();
+          if (Number.isFinite(quizLimit) && target > quizLimit) {
+            target = quizLimit;
+            scrubber.value = String(target);
+          }
           video.currentTime = target;
           updatePlaybackUi();
         }
